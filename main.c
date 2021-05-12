@@ -1,10 +1,10 @@
+#include "errHandle.h"
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
 /*
 
 * cliツールを想定
@@ -21,7 +21,6 @@
     * taskの種別事にexecを分ける(runtaskの間にmiddleware的なものを挟む)
 
 */
-
 typedef struct Task {
   char *taskName;
   char *binpath;
@@ -29,7 +28,7 @@ typedef struct Task {
 
 int max_thread = 4;
 int timeout_sec = 3600;
-char *bin_path = "./sayHello";
+char *bin_path[2]; // TODO: よくわかってない
 
 pthread_mutex_t mutex;
 pthread_cond_t cond;
@@ -42,9 +41,17 @@ int taskCount = 0;
 ・taskQueueにもしtaskがあったら、lockをとりつつどれかのthreadがキャッチする。catchできたthreadがrunTask(ここだと実行バイナリ)を実行
 */
 
+int ctoi(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  } else {
+    return -1;
+  }
+  return 0;
+}
+
 int executeTask(Task *task) {
   usleep(50000);
-  // pthread_mutex_lock(&mutex);
   // execlが呼び出し元に制御を戻さない仕様らしいので、forkしてchild
   // processにexecさせる
   int pid = fork();
@@ -56,7 +63,6 @@ int executeTask(Task *task) {
   } else {
     wait(NULL);
   }
-  // pthread_mutex_unlock(&mutex);
   printf("end.\n");
   return 0;
 }
@@ -94,8 +100,6 @@ int run() {
   pthread_mutex_init(&mutex, NULL);
   pthread_cond_init(&cond, NULL);
   // debug text.
-  printf("次の設定でthread poolを作成します,%d ,%s:, %d\n", timeout_sec,
-         bin_path, max_thread);
   for (int i = 0; i < max_thread; i++) {
     if (pthread_create(&th[i], NULL, &startThread, NULL) != 0) {
       return -2;
@@ -123,26 +127,37 @@ int run() {
 
 int parseArgs(int argc, char *argv[]) {
   if (argc < 2) {
-    fprintf(
-        stderr,
-        "err: Args are not enough, got %d. at least you must provide bin path.",
-        argc);
-    return -1;
+    // ERROR("Args are not enough, got %d. at least you must provide bin
+    // path.");
   }
 
-  // TODO:
-  // for(int i = 0; i < argc; i++) {
-  //          printf("%s\n",argv[i]);
-  //     if(*argv[i]=='-binpath') {
-  //         strcpy(bin_path, argv[i + 1]);
-  //     } else if (*argv[i]=='-timeout') {
-  //         strcpy(timeout_sec, argv[i + 1]);
-  //     } else if (*argv[i]=='-max_thread') {
-  //         strcpy(max_thread, argv[i + 1]);
-  //     }
-  // }
-  int status = run();
-  return status;
+  for (int i = 0; i < argc; i++) {
+    if (strcmp(argv[i], "-binpath") == 0) {
+      strcpy(bin_path, argv[i + 1]);
+    } else if (strcmp(argv[i], "-timeout_sec") == 0) {
+      timeout_sec = ctoi(*(argv[i + 1]));
+      if (timeout_sec < 0) {
+        return -2;
+      }
+    } else if (strcmp(argv[i], "-max_thread") == 0) {
+      max_thread = ctoi(*(argv[i + 1]));
+      if (max_thread < 0) {
+        return -2;
+      }
+    }
+  }
+  printf("path: %s, timeout: %d,thread: %d \n", bin_path, timeout_sec,
+         max_thread);
+  return 0;
 }
 
-int main(int argc, char *argv[]) { exit(parseArgs(argc, argv)); }
+int main(int argc, char *argv[]) {
+
+  if (parseArgs(argc, argv) != 0) {
+    return -2;
+  }
+  if (run() != 0) {
+    return -3;
+  }
+  return 0;
+}
