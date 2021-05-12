@@ -45,13 +45,21 @@ int taskCount = 0;
 */
 
 int executeTask(Task* task) {
-     usleep(50000);
-    if(execl(bin_path, NULL) != 0) {
-        return -1;
+    usleep(50000);
+    // pthread_mutex_lock(&mutex);
+    // execlが呼び出し元に制御を戻さない仕様らしいので、forkしてchild processにexecさせる
+    int pid = fork();
+    if(pid == 0) {
+        if(execl(bin_path, NULL) != 0) {
+            return -1;
+        }
+        exit(0);
+    } else {
+        wait(NULL);
     }
-    pthread_mutex_lock(&mutex);
-    pthread_mutex_unlock(&mutex);
-    printf("task done!!");
+    // pthread_mutex_unlock(&mutex);
+    printf("end.\n");
+    return 0;
 }
 
 void* startThread() {
@@ -69,7 +77,7 @@ void* startThread() {
 
         pthread_mutex_unlock(&mutex);
         if(executeTask(&task) != 0) {
-            return -1;
+            return -2;
         }
     }
 }
