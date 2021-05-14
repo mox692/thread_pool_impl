@@ -21,6 +21,12 @@
     * taskの種別事にexecを分ける(runtaskの間にmiddleware的なものを挟む)
 
 */
+
+/*
+・program開始時にpidを表示するように変更
+・user定義sigを定義、そのあとハンドラを定義
+・
+*/
 typedef struct Task {
   char *taskName;
   char *binpath;
@@ -35,6 +41,7 @@ pthread_cond_t cond;
 
 Task TaskQueue[256];
 int taskCount = 0;
+int totalDoneTaskCount = 0;
 
 /*
 ・loopを常に回し、taskQueueを監視している
@@ -63,7 +70,10 @@ int executeTask(Task *task) {
   } else {
     wait(NULL);
   }
-  printf("end.\n");
+  pthread_mutex_lock(&mutex);
+  totalDoneTaskCount++;
+  printf("NO.%d task end.\n", totalDoneTaskCount);
+  pthread_mutex_unlock(&mutex);
   return 0;
 }
 
@@ -94,6 +104,13 @@ int submitTask() {
   taskCount++;
 }
 
+void sigHandler(int signo) {
+  //  printf("get signal %d\n", signo);
+  pthread_mutex_lock(&mutex);
+  submitTask();
+  pthread_mutex_unlock(&mutex);
+}
+
 int run() {
   pthread_t th[max_thread];
 
@@ -114,21 +131,35 @@ int run() {
     pthread_mutex_unlock(&mutex);
   }
 
+  // sig handler
+  printf("initial task all done.\n");
+  printf("if you want to add task, please send signal to this process(pid = "
+         "%d).\n",
+         getpid());
+  signal(SIGUSR1, sigHandler);
+
+  pthread_mutex_destroy(&mutex);
+  pthread_cond_destroy(&cond);
   for (int i = 0; i < max_thread; i++) {
     if (pthread_join(th[i], NULL) != 0) {
       return -3;
     }
   }
+  return 0;
+}
 
-  pthread_mutex_destroy(&mutex);
-  pthread_cond_destroy(&cond);
+int initialPrint() {
+  printf("******* program start **********\n");
+  printf("pid: %d\n", getpid());
+  printf("program start in 2s.\n");
+  sleep(2);
   return 0;
 }
 
 int parseArgs(int argc, char *argv[]) {
   if (argc < 2) {
-    // ERROR("Args are not enough, got %d. at least you must provide bin
-    // path.");
+    ERROR("Args are not enough, got %d. at least you must provide bin path.");
+    return -1;
   }
 
   for (int i = 0; i < argc; i++) {
@@ -156,6 +187,11 @@ int main(int argc, char *argv[]) {
   if (parseArgs(argc, argv) != 0) {
     return -2;
   }
+
+  if (initialPrint() != 0) {
+    ERROR("Fail to initialPrint.");
+  }
+
   if (run() != 0) {
     return -3;
   }
