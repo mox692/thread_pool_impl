@@ -13,10 +13,12 @@ void err_msg(const char *file, const char *function, int line, const char *type,
   time(&timer);
   char *t = ctime(&timer);
   t[strlen(t) - 1] = '\0';
+  fprintf(stderr, "@@@@@@@@@ Error Happen @@@@@@@@@@\n");
   fprintf(stderr, "%s ", t); /* 現在時刻を表示 */
 
-  fprintf(stderr, "%d ", getpid()); /* プロセスIDを出力 */
-  fprintf(stderr, "%s %s %d %s ", file, function, line, type);
+  fprintf(stderr, "pid: %d\n", getpid()); /* プロセスIDを出力 */
+  fprintf(stderr, "FILE: %s FUNC: %s LINE: %d KIND: %s \n", file, function,
+          line, type);
 
   va_list ap;
   va_start(ap, fmt);
@@ -26,4 +28,5 @@ void err_msg(const char *file, const char *function, int line, const char *type,
   fprintf(stderr, " %s(%d)", strerror(errno),
           errno); /* エラーメッセージを出力 */
   fputc('\n', stderr);
+  fprintf(stderr, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
 }
