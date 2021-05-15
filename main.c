@@ -35,6 +35,7 @@
 typedef struct Task {
   char *taskName;
   char *binpath;
+  int num;
 } Task;
 
 int max_thread = 4;
@@ -44,7 +45,7 @@ char *bin_path[2]; // TODO: よくわかってない
 pthread_mutex_t mutex;
 pthread_cond_t cond;
 
-char *shared_mem;
+Task *shared_mem;
 int segment_id;
 
 int original_pid;
@@ -153,6 +154,18 @@ void sigIntHandler(int signo) {
   return;
 }
 
+int split(char *str, const char *delim, char *outlist[]) {
+  char *tk;
+  int cnt = 0;
+  int MAXITEM = 10;
+  tk = strtok(str, delim);
+  while (tk != NULL && cnt < MAXITEM) {
+    outlist[cnt++] = tk;
+    tk = strtok(NULL, delim);
+  }
+  return cnt;
+}
+
 int start_mem_share() {
   // sigkillに対するハンドラを書きたい
   const file_path = "./key_data.dat";
@@ -180,19 +193,26 @@ int start_mem_share() {
   printf("shared memory attached at address %p\n", shared_mem);
 
   // write!!
-  // sprintf(shared_mem, "Hello world.");
+  sprintf(shared_mem, "Hello world.");
 
   // sharememにはbinpathとtaskの個数が渡される想定.
   int pid = fork();
   if (pid == 0) {
     char taskInfo[6400];
     char *taskInfoAddr = &taskInfo;
+    char *dist[2];
     printf("Attach Success, waiting additional task...\n");
     for (;;) {
       sleep(2);
       if (strcmp(taskInfoAddr, shared_mem) != 0) {
         // taskInfo書き換え
+        printf("Write detected.\n");
+        printf("Before: %s, After: %s\n", taskInfoAddr, shared_mem);
         strcpy(taskInfoAddr, shared_mem);
+        printf("Before: %s, After: %s\n", taskInfoAddr, shared_mem);
+        // split(st, taskInfoAddrCpy, " ", dist);
+        printf("dist[0] %s,", dist[0]);
+        printf("dist[1] %s\n", dist[1]);
       }
     }
   } else {
