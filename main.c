@@ -1,4 +1,5 @@
 #include "errHandle.h"
+#include "strutil.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -154,33 +155,6 @@ void sigIntHandler(int signo) {
   return;
 }
 
-int isDelimiter(char p, char delim) { return p == delim; }
-
-int split(char *dst[], char *src, char delim) {
-  int count = 0;
-
-  for (;;) {
-    while (isDelimiter(*src, delim)) {
-      src++;
-    }
-
-    if (*src == '\0')
-      break;
-
-    dst[count++] = src;
-
-    while (*src && !isDelimiter(*src, delim)) {
-      src++;
-    }
-
-    if (*src == '\0')
-      break;
-
-    *src++ = '\0';
-  }
-  return count;
-}
-
 int start_mem_share() {
   // sigkillに対するハンドラを書きたい
   const file_path = "./key_data.dat";
@@ -220,35 +194,28 @@ int start_mem_share() {
     printf("Attach Success, waiting additional task...\n");
     for (;;) {
       sleep(2);
-      // printf("taskInfoAddr:%p, shared_mem: %p\n", taskInfoAddr, shared_mem);
       if (strcmp(taskInfoAddr, shared_mem) != 0) {
-        // tmp配列に文字を書き込み
-        // taskInfo書き換え
         printf("Write detected.\n");
         printf("Before: %s, After: %s\n", taskInfoAddr, shared_mem);
         strcpy(taskInfoAddr, shared_mem);
-        // ここから下の処理の仕方は変えていきたい
+        // TODO:
+        // ここから下の処理の仕方は変えていきたい(smartにstructでやりとりしたい.)
         for (int i = 0; i < 100; i++) {
           tmpStr[i] = taskInfoAddr[i];
         }
-        int count = split(dist, tmpStr, ' ');
         Task newTask;
-        Task *newTaskPtr = &newTask;
-        printf("[@@@@@@@@@@@@@@@@count  = %d \n", count);
-        for (int i = 0; i < count; i++) {
-          printf("%s ", dist[i]);
-        }
+        int count = split(dist, tmpStr, ' ');
         for (int i = 0; i < count; i++) {
           if (strcmp(dist[i], "-binpath") == 0) {
-            printf("called!!!");
             newTask.binpath = dist[i + 1];
           }
           if (strcmp(dist[i], "-num") == 0) {
             newTask.num = atoi(dist[i + 1]);
           }
         }
-        printf("newtask.binpath = %s, newtask.num = %d\n", newTask.binpath,
-               newTask.num);
+        for (int i = 0; i < newTask.num; i++) {
+          // TODO: submit task.
+        }
       }
     }
   } else {
@@ -259,7 +226,6 @@ int start_mem_share() {
 int run() {
   pthread_t th[max_thread];
 
-  // debug text.
   for (int i = 0; i < max_thread; i++) {
     if (pthread_create(&th[i], NULL, &startThread, NULL) != 0) {
       return -2;

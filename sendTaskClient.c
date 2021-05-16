@@ -39,7 +39,8 @@ main() {
   printf("now: %s\n", shared_mem);
 
   // TODO: structでやりとりするようにする
-  sprintf(shared_mem, "-binpath=%s -num=%d", "./test", rand() % 10);
+  sprintf(shared_mem, "-binpath %s%d -num %d", "./test", rand() % 10,
+          rand() % 10);
   printf("after: %s\n", shared_mem);
   shmdt(shared_mem);
 
