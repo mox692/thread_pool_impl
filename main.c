@@ -45,7 +45,7 @@ char *bin_path[2]; // TODO: よくわかってない
 pthread_mutex_t mutex;
 pthread_cond_t cond;
 
-Task *shared_mem;
+char *shared_mem;
 int segment_id;
 
 int original_pid;
@@ -65,7 +65,7 @@ int ctoi(char c) {
   } else {
     return -1;
   }
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 int executeTask(Task *task) {
@@ -85,7 +85,7 @@ int executeTask(Task *task) {
   totalDoneTaskCount++;
   printf("NO.%d task end.\n", totalDoneTaskCount);
   pthread_mutex_unlock(&mutex);
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 void *startThread() {
@@ -142,9 +142,9 @@ void finish() {
 
   if (finish_mem_share() != 0) {
     ERROR("finish_mem_share fail.");
-    exit(1);
+    exit(EXIT_FAILURE);
   }
-  exit(0);
+  exit(EXIT_SUCCESS);
 }
 
 void sigIntHandler(int signo) {
@@ -154,16 +154,31 @@ void sigIntHandler(int signo) {
   return;
 }
 
-int split(char *str, const char *delim, char *outlist[]) {
-  char *tk;
-  int cnt = 0;
-  int MAXITEM = 10;
-  tk = strtok(str, delim);
-  while (tk != NULL && cnt < MAXITEM) {
-    outlist[cnt++] = tk;
-    tk = strtok(NULL, delim);
+int isDelimiter(char p, char delim) { return p == delim; }
+
+int split(char *dst[], char *src, char delim) {
+  int count = 0;
+
+  for (;;) {
+    while (isDelimiter(*src, delim)) {
+      src++;
+    }
+
+    if (*src == '\0')
+      break;
+
+    dst[count++] = src;
+
+    while (*src && !isDelimiter(*src, delim)) {
+      src++;
+    }
+
+    if (*src == '\0')
+      break;
+
+    *src++ = '\0';
   }
-  return cnt;
+  return count;
 }
 
 int start_mem_share() {
@@ -193,26 +208,47 @@ int start_mem_share() {
   printf("shared memory attached at address %p\n", shared_mem);
 
   // write!!
-  sprintf(shared_mem, "Hello world.");
+  sprintf(shared_mem, "-binpath test -num 5", "./atest");
 
   // sharememにはbinpathとtaskの個数が渡される想定.
   int pid = fork();
   if (pid == 0) {
     char taskInfo[6400];
     char *taskInfoAddr = &taskInfo;
-    char *dist[2];
+    char tmpStr[100];
+    char *dist[100];
     printf("Attach Success, waiting additional task...\n");
     for (;;) {
       sleep(2);
+      // printf("taskInfoAddr:%p, shared_mem: %p\n", taskInfoAddr, shared_mem);
       if (strcmp(taskInfoAddr, shared_mem) != 0) {
+        // tmp配列に文字を書き込み
         // taskInfo書き換え
         printf("Write detected.\n");
         printf("Before: %s, After: %s\n", taskInfoAddr, shared_mem);
         strcpy(taskInfoAddr, shared_mem);
-        printf("Before: %s, After: %s\n", taskInfoAddr, shared_mem);
-        // split(st, taskInfoAddrCpy, " ", dist);
-        printf("dist[0] %s,", dist[0]);
-        printf("dist[1] %s\n", dist[1]);
+        // ここから下の処理の仕方は変えていきたい
+        for (int i = 0; i < 100; i++) {
+          tmpStr[i] = taskInfoAddr[i];
+        }
+        int count = split(dist, tmpStr, ' ');
+        Task newTask;
+        Task *newTaskPtr = &newTask;
+        printf("[@@@@@@@@@@@@@@@@count  = %d \n", count);
+        for (int i = 0; i < count; i++) {
+          printf("%s ", dist[i]);
+        }
+        for (int i = 0; i < count; i++) {
+          if (strcmp(dist[i], "-binpath") == 0) {
+            printf("called!!!");
+            newTask.binpath = dist[i + 1];
+          }
+          if (strcmp(dist[i], "-num") == 0) {
+            newTask.num = atoi(dist[i + 1]);
+          }
+        }
+        printf("newtask.binpath = %s, newtask.num = %d\n", newTask.binpath,
+               newTask.num);
       }
     }
   } else {
@@ -252,7 +288,7 @@ int run() {
     }
   }
 
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 int initialPrint() {
@@ -260,13 +296,13 @@ int initialPrint() {
   printf("pid: %d\n", getpid());
   printf("program start in 2s.\n");
   sleep(2);
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 int parseArgs(int argc, char *argv[]) {
   if (argc < 2) {
     ERROR("Args are not enough, got %d. at least you must provide bin path.");
-    return -1;
+    return EXIT_FAILURE;
   }
   for (int i = 0; i < argc; i++) {
     if (strcmp(argv[i], "-binpath") == 0) {
@@ -274,18 +310,18 @@ int parseArgs(int argc, char *argv[]) {
     } else if (strcmp(argv[i], "-timeout_sec") == 0) {
       timeout_sec = ctoi(*(argv[i + 1]));
       if (timeout_sec < 0) {
-        return -2;
+        return EXIT_FAILURE;
       }
     } else if (strcmp(argv[i], "-max_thread") == 0) {
       max_thread = ctoi(*(argv[i + 1]));
       if (max_thread < 0) {
-        return -2;
+        return EXIT_FAILURE;
       }
     }
   }
   printf("path: %s, timeout: %d,thread: %d \n", bin_path, timeout_sec,
          max_thread);
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 void set_original_pid() { original_pid = getpid(); }
@@ -328,5 +364,5 @@ int main(int argc, char *argv[]) {
   if (getpid() == original_pid) {
     finish();
   }
-  return 0;
+  return EXIT_SUCCESS;
 }
