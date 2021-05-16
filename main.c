@@ -1,8 +1,14 @@
 #include "errHandle.h"
+#include "strutil.h"
+#include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 /*
@@ -30,6 +36,7 @@
 typedef struct Task {
   char *taskName;
   char *binpath;
+  int num;
 } Task;
 
 int max_thread = 4;
@@ -38,6 +45,11 @@ char *bin_path[2]; // TODO: よくわかってない
 
 pthread_mutex_t mutex;
 pthread_cond_t cond;
+
+char *shared_mem;
+int segment_id;
+
+int original_pid;
 
 Task TaskQueue[256];
 int taskCount = 0;
@@ -54,7 +66,7 @@ int ctoi(char c) {
   } else {
     return -1;
   }
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 int executeTask(Task *task) {
@@ -74,7 +86,7 @@ int executeTask(Task *task) {
   totalDoneTaskCount++;
   printf("NO.%d task end.\n", totalDoneTaskCount);
   pthread_mutex_unlock(&mutex);
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 void *startThread() {
@@ -104,19 +116,116 @@ int submitTask() {
   taskCount++;
 }
 
-void sigHandler(int signo) {
+void sigUsrHandler(int signo) {
   //  printf("get signal %d\n", signo);
-  pthread_mutex_lock(&mutex);
   submitTask();
-  pthread_mutex_unlock(&mutex);
+}
+
+int finish_mem_share() {
+  printf("pid: %d\n", getpid());
+  if (shmdt(shared_mem) == -1) {
+    ERROR("shmdt fail.");
+    return EXIT_FAILURE;
+  }
+  if (shmctl(segment_id, IPC_RMID, 0) == -1) {
+    printf("segment_id; %d\n", segment_id);
+    ERROR("shmctl fail.");
+    return EXIT_FAILURE;
+  }
+}
+
+// thread系のdest
+// sharememの開放
+void finish() {
+  printf("\nGet SIGINT, program will exit...\n");
+  pthread_mutex_destroy(&mutex);
+  pthread_cond_destroy(&cond);
+
+  if (finish_mem_share() != 0) {
+    ERROR("finish_mem_share fail.");
+    exit(EXIT_FAILURE);
+  }
+  exit(EXIT_SUCCESS);
+}
+
+void sigIntHandler(int signo) {
+  if (getpid() == original_pid) {
+    finish();
+  }
+  return;
+}
+
+int start_mem_share() {
+  // sigkillに対するハンドラを書きたい
+  const file_path = "./key_data.dat";
+  int id = 43;
+  key_t key = ftok(file_path, id);
+  if (id == -1) {
+    ERROR("ftok fail.");
+    return EXIT_FAILURE;
+  }
+  int shared_segment_size = 0x6400;
+  segment_id = shmget(key, shared_segment_size,
+                      IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+  if (segment_id == -1) {
+    ERROR("shmget fail.");
+    return EXIT_FAILURE;
+  }
+
+  printf("key: %d\n", key);
+  printf("segment_id: %d\n", segment_id);
+
+  shared_mem = shmat(segment_id, 0, 0);
+  if (shared_mem == -1) {
+    ERROR("shmat fail");
+  }
+  printf("shared memory attached at address %p\n", shared_mem);
+
+  // write!!
+  sprintf(shared_mem, "-binpath test -num 5", "./atest");
+
+  // sharememにはbinpathとtaskの個数が渡される想定.
+  int pid = fork();
+  if (pid == 0) {
+    char taskInfo[6400];
+    char *taskInfoAddr = &taskInfo;
+    char tmpStr[100];
+    char *dist[100];
+    printf("Attach Success, waiting additional task...\n");
+    for (;;) {
+      sleep(2);
+      if (strcmp(taskInfoAddr, shared_mem) != 0) {
+        printf("Write detected.\n");
+        printf("Before: %s, After: %s\n", taskInfoAddr, shared_mem);
+        strcpy(taskInfoAddr, shared_mem);
+        // TODO:
+        // ここから下の処理の仕方は変えていきたい(smartにstructでやりとりしたい.)
+        for (int i = 0; i < 100; i++) {
+          tmpStr[i] = taskInfoAddr[i];
+        }
+        Task newTask;
+        int count = split(dist, tmpStr, ' ');
+        for (int i = 0; i < count; i++) {
+          if (strcmp(dist[i], "-binpath") == 0) {
+            newTask.binpath = dist[i + 1];
+          }
+          if (strcmp(dist[i], "-num") == 0) {
+            newTask.num = atoi(dist[i + 1]);
+          }
+        }
+        for (int i = 0; i < newTask.num; i++) {
+          // TODO: submit task.
+        }
+      }
+    }
+  } else {
+    return EXIT_SUCCESS;
+  }
 }
 
 int run() {
   pthread_t th[max_thread];
 
-  pthread_mutex_init(&mutex, NULL);
-  pthread_cond_init(&cond, NULL);
-  // debug text.
   for (int i = 0; i < max_thread; i++) {
     if (pthread_create(&th[i], NULL, &startThread, NULL) != 0) {
       return -2;
@@ -124,7 +233,7 @@ int run() {
   }
 
   // TODO: hardcode
-  int runTaskCount = 100;
+  int runTaskCount = 10;
   for (int i = 0; i < runTaskCount; i++) {
     pthread_mutex_lock(&mutex);
     submitTask();
@@ -136,7 +245,6 @@ int run() {
   printf("if you want to add task, please send signal to this process(pid = "
          "%d).\n",
          getpid());
-  signal(SIGUSR1, sigHandler);
 
   pthread_mutex_destroy(&mutex);
   pthread_cond_destroy(&cond);
@@ -145,7 +253,8 @@ int run() {
       return -3;
     }
   }
-  return 0;
+
+  return EXIT_SUCCESS;
 }
 
 int initialPrint() {
@@ -153,33 +262,55 @@ int initialPrint() {
   printf("pid: %d\n", getpid());
   printf("program start in 2s.\n");
   sleep(2);
-  return 0;
+  return EXIT_SUCCESS;
 }
 
 int parseArgs(int argc, char *argv[]) {
   if (argc < 2) {
     ERROR("Args are not enough, got %d. at least you must provide bin path.");
-    return -1;
+    return EXIT_FAILURE;
   }
-
   for (int i = 0; i < argc; i++) {
     if (strcmp(argv[i], "-binpath") == 0) {
       strcpy(bin_path, argv[i + 1]);
     } else if (strcmp(argv[i], "-timeout_sec") == 0) {
       timeout_sec = ctoi(*(argv[i + 1]));
       if (timeout_sec < 0) {
-        return -2;
+        return EXIT_FAILURE;
       }
     } else if (strcmp(argv[i], "-max_thread") == 0) {
       max_thread = ctoi(*(argv[i + 1]));
       if (max_thread < 0) {
-        return -2;
+        return EXIT_FAILURE;
       }
     }
   }
   printf("path: %s, timeout: %d,thread: %d \n", bin_path, timeout_sec,
          max_thread);
-  return 0;
+  return EXIT_SUCCESS;
+}
+
+void set_original_pid() { original_pid = getpid(); }
+
+// sigハンドラの作成
+// thread系のinit
+int init() {
+
+  // !forkはこれ以降に行うようにする
+  set_original_pid();
+
+  pthread_mutex_init(&mutex, NULL);
+  pthread_cond_init(&cond, NULL);
+  // SIGの対応開始
+  signal(SIGUSR1, sigUsrHandler);
+  signal(SIGINT, sigIntHandler);
+
+  // memshareの開始
+  if (start_mem_share() != 0) {
+    return EXIT_FAILURE;
+  }
+  initialPrint();
+  return EXIT_SUCCESS;
 }
 
 int main(int argc, char *argv[]) {
@@ -188,12 +319,16 @@ int main(int argc, char *argv[]) {
     return -2;
   }
 
-  if (initialPrint() != 0) {
-    ERROR("Fail to initialPrint.");
+  if (init() != 0) {
+    return -1;
   }
 
   if (run() != 0) {
     return -3;
   }
-  return 0;
+
+  if (getpid() == original_pid) {
+    finish();
+  }
+  return EXIT_SUCCESS;
 }

@@ -1,5 +1,5 @@
 PRG    = thread_pool_impl
-OBJ    = main.o errHandle.o
+OBJ    = main.o errHandle.o strutil.o
 
 CFLAGS = -g -Wall
 LFLAGS =
